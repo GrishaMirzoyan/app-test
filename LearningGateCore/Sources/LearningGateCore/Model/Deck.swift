@@ -38,4 +38,6 @@ public struct DeckKind: RawRepresentable, Hashable, Codable, Sendable {
     public static let vocabulary = DeckKind("vocabulary")
     public static let language   = DeckKind("language")
     public static let general    = DeckKind("general")
+    /// Reserved for the future test-prep deck type.
+    public static let testPrep   = DeckKind("testPrep")
 }

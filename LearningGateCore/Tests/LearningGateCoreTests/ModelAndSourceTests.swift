@@ -12,10 +12,15 @@ final class ModelAndSourceTests: XCTestCase {
         XCTAssertEqual(card, decoded)
     }
 
-    func testDeckKindDecodesUnknownValueGracefully() throws {
-        let json = Data(#"{"rawValue":"testPrep"}"#.utf8)
-        let kind = try JSONDecoder().decode(DeckKind.self, from: json)
-        XCTAssertEqual(kind.rawValue, "testPrep") // forward-compatible for future deck types
+    func testDeckKindCodableIsBareString() throws {
+        // RawRepresentable(String) gets the stdlib single-value Codable, so a
+        // DeckKind encodes as a plain JSON string — and any unknown raw value
+        // (e.g. a future "testPrep") decodes without throwing.
+        let encoded = try JSONEncoder().encode(DeckKind.testPrep)
+        XCTAssertEqual(String(decoding: encoded, as: UTF8.self), "\"testPrep\"")
+
+        let decoded = try JSONDecoder().decode(DeckKind.self, from: Data("\"future\"".utf8))
+        XCTAssertEqual(decoded.rawValue, "future")
     }
 
     func testCardIsDue() {
