@@ -1,0 +1,30 @@
+name: LearningGateCore Tests
+
+# Verifies the pure Swift core (Anki/CSV parsers, SM-2/Leitner schedulers,
+# unlock loop, stores) on Linux, where the Swift toolchain is available.
+# The app target and extensions require Xcode and are built separately.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  core-tests:
+    runs-on: ubuntu-latest
+    container: swift:5.10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system libraries
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libsqlite3-dev zlib1g-dev
+
+      - name: Build
+        working-directory: LearningGateCore
+        run: swift build -v
+
+      - name: Test
+        working-directory: LearningGateCore
+        run: swift test -v
