@@ -1,0 +1,455 @@
+// AAS Community data model.
+// The `Member` + `AttendanceSpan` pair is the spine everything reads from (§2, §3).
+// Phase 2 entities (§3.7) are defined now and gated at the feature layer, not here.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  student
+  faculty
+  staff
+}
+
+enum VerificationStatus {
+  pending
+  verified
+  rejected
+}
+
+enum MapVisibility {
+  city
+  country
+  hidden
+}
+
+enum Visibility {
+  friends
+  verified_members
+  hidden
+}
+
+enum VerificationMethod {
+  vouch
+  era_corroboration
+}
+
+enum RequestStatus {
+  pending
+  approved
+  rejected
+}
+
+enum FriendshipStatus {
+  pending
+  accepted
+}
+
+enum ProfileEntryKind {
+  work
+  education
+}
+
+enum ArchiveType {
+  yearbook
+  photo
+}
+
+enum ChatThreadType {
+  dm
+  group
+}
+
+enum MessageRequestStatus {
+  pending
+  accepted
+  declined
+}
+
+// Phase 2 enums
+enum GatheringType {
+  reunion
+  meetup
+}
+
+enum GatheringStatus {
+  proposed
+  gathering_interest
+  confirmed
+  happened
+  archived
+}
+
+enum InterestStatus {
+  interested
+  attending
+}
+
+enum FeedLane {
+  announcement
+  general
+}
+
+// ---------------------------------------------------------------------------
+// Core: member + attendance (the spine)
+// ---------------------------------------------------------------------------
+
+model Member {
+  id             String  @id @default(uuid())
+  authProviderId String?
+  email          String  @unique
+  // Conventional auth only (§1): bcrypt hash for email/password; OAuth links via Account.
+  passwordHash   String?
+  emailVerified  DateTime?
+
+  // Pseudonymity (§1): verification is tied to legalName internally; the app
+  // displays displayName, which may be a chosen handle.
+  legalName      String
+  displayName    String
+  isPseudonymous Boolean @default(false)
+
+  role               Role
+  verificationStatus VerificationStatus @default(pending)
+  verifiedAt         DateTime?
+
+  // Location granularity (§1): city-level ONLY. lat/lng are city centroids,
+  // never precise coordinates, used only to place a city pin on the map.
+  homeCity    String?
+  homeCountry String?
+  homeLat     Float?
+  homeLng     Float?
+  cityUpdatedAt DateTime?
+
+  mapVisibility    MapVisibility @default(city)
+  allowFaceTagging Boolean       @default(true)
+
+  isAdmin   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  attendanceSpans AttendanceSpan[]
+  accounts        Account[]
+
+  vouchesGiven    Vouch[] @relation("voucher")
+  vouchesReceived Vouch[] @relation("vouchee")
+
+  verificationRequests VerificationRequest[] @relation("requestMember")
+  reviewedRequests     VerificationRequest[] @relation("reviewer")
+
+  friendshipsRequested Friendship[] @relation("requester")
+  friendshipsReceived  Friendship[] @relation("addressee")
+
+  profileEntries ProfileEntry[]
+
+  uploadedArchiveItems ArchiveItem[] @relation("uploader")
+  archiveTagsOfMe      ArchiveTag[]  @relation("taggedMember")
+  archiveTagsAdded     ArchiveTag[]  @relation("tagAuthor")
+
+  chatMemberships  ChatMembership[]
+  createdThreads   ChatThread[]     @relation("threadCreator")
+  sentMessages     Message[]
+  messageRequestsFrom MessageRequest[] @relation("mrFrom")
+  messageRequestsTo   MessageRequest[] @relation("mrTo")
+
+  @@index([role])
+  @@index([verificationStatus])
+  @@index([homeCity, homeCountry])
+}
+
+model AttendanceSpan {
+  id        String @id @default(uuid())
+  memberId  String
+  member    Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  startYear Int
+  endYear   Int
+
+  // Student-only
+  entryGrade String? // "PK", "5", "9"
+  exitGrade  String?
+  graduated  Boolean @default(false)
+
+  divisions String[] // elementary | middle | high
+
+  // Faculty-only
+  subjects     String[]
+  gradesTaught String[]
+
+  // Staff-only
+  staffRole String?
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId])
+  @@index([startYear, endYear])
+}
+
+// ---------------------------------------------------------------------------
+// Auth linkage (OAuth) — Member doubles as the auth user.
+// ---------------------------------------------------------------------------
+
+model Account {
+  id                String  @id @default(uuid())
+  memberId          String
+  member            Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  provider          String
+  providerAccountId String
+  type              String
+  accessToken       String?
+  refreshToken      String?
+  expiresAt         Int?
+
+  @@unique([provider, providerAccountId])
+  @@index([memberId])
+}
+
+// ---------------------------------------------------------------------------
+// Verification (§3.3) — membership is established by peer vouching and
+// era-corroboration. Until verified, a member sees nothing sensitive (§1).
+// ---------------------------------------------------------------------------
+
+model Vouch {
+  id        String   @id @default(uuid())
+  voucherId String
+  voucher   Member   @relation("voucher", fields: [voucherId], references: [id], onDelete: Cascade)
+  voucheeId String
+  vouchee   Member   @relation("vouchee", fields: [voucheeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([voucherId, voucheeId])
+  @@index([voucheeId])
+}
+
+model VerificationRequest {
+  id       String             @id @default(uuid())
+  memberId String
+  member   Member             @relation("requestMember", fields: [memberId], references: [id], onDelete: Cascade)
+  method   VerificationMethod
+
+  // principal names, teacher names, campus details, era specifics
+  corroborationDetails String?
+
+  status     RequestStatus @default(pending)
+  reviewedBy String?
+  reviewer   Member?       @relation("reviewer", fields: [reviewedBy], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Social graph & profile content (§3.4)
+// ---------------------------------------------------------------------------
+
+model Friendship {
+  id          String           @id @default(uuid())
+  requesterId String
+  requester   Member           @relation("requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addresseeId String
+  addressee   Member           @relation("addressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  status      FriendshipStatus @default(pending)
+  createdAt   DateTime         @default(now())
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId])
+}
+
+model ProfileEntry {
+  id        String           @id @default(uuid())
+  memberId  String
+  member    Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  kind      ProfileEntryKind
+  org       String
+  title     String
+  startYear Int?
+  endYear   Int?
+  // Per-item visibility (§1 two privacy rings).
+  visibility Visibility @default(verified_members)
+
+  @@index([memberId])
+}
+
+// ---------------------------------------------------------------------------
+// Archive / Library (§3.5) — verified-members-only, never public (§1).
+// ---------------------------------------------------------------------------
+
+model ArchiveItem {
+  id         String      @id @default(uuid())
+  uploaderId String
+  uploader   Member      @relation("uploader", fields: [uploaderId], references: [id], onDelete: Cascade)
+  type       ArchiveType
+  title      String
+  year            Int?
+  yearRangeStart  Int?
+  yearRangeEnd    Int?
+  roomTag    String?
+  imageRef   String // object-store key
+  // Always verified_members; never public. Kept as a field for uniformity.
+  visibility Visibility @default(verified_members)
+  createdAt  DateTime   @default(now())
+
+  tags ArchiveTag[]
+
+  @@index([year])
+  @@index([roomTag])
+}
+
+model ArchiveTag {
+  id            String   @id @default(uuid())
+  archiveItemId String
+  archiveItem   ArchiveItem @relation(fields: [archiveItemId], references: [id], onDelete: Cascade)
+  // nullable: a free-text name when the tagged person is not a member.
+  taggedMemberId String?
+  taggedMember   Member? @relation("taggedMember", fields: [taggedMemberId], references: [id], onDelete: SetNull)
+  label         String?
+  addedBy       String
+  author        Member   @relation("tagAuthor", fields: [addedBy], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@index([archiveItemId])
+  @@index([taggedMemberId])
+}
+
+// ---------------------------------------------------------------------------
+// Chat / Cafeteria (§3.6) — message requests gate first contact (§1).
+// ---------------------------------------------------------------------------
+
+model ChatThread {
+  id        String         @id @default(uuid())
+  type      ChatThreadType
+  name      String? // group only
+  createdBy String
+  creator   Member         @relation("threadCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  memberships ChatMembership[]
+  messages    Message[]
+}
+
+model ChatMembership {
+  id         String   @id @default(uuid())
+  threadId   String
+  thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  memberId   String
+  member     Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  joinedAt   DateTime @default(now())
+  lastReadAt DateTime?
+
+  @@unique([threadId, memberId])
+  @@index([memberId])
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  threadId  String
+  thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    Member   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([threadId, createdAt])
+}
+
+model MessageRequest {
+  id     String               @id @default(uuid())
+  fromId String
+  from   Member               @relation("mrFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId   String
+  to     Member               @relation("mrTo", fields: [toId], references: [id], onDelete: Cascade)
+  status MessageRequestStatus @default(pending)
+  createdAt DateTime          @default(now())
+
+  @@unique([fromId, toId])
+  @@index([toId])
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 entities (§3.7) — schema defined now, features built behind a
+// member-count trigger (§5.1) or pulled forward freely (§5.2).
+// ---------------------------------------------------------------------------
+
+model Gathering {
+  id                String          @id @default(uuid())
+  type              GatheringType
+  title             String
+  eraStart          Int?
+  eraEnd            Int?
+  city              String?
+  proposedBy        String
+  status            GatheringStatus @default(proposed)
+  interestThreshold Int             @default(5)
+  eventDate         DateTime?
+  createdAt         DateTime        @default(now())
+
+  interests GatheringInterest[]
+}
+
+model GatheringInterest {
+  id          String         @id @default(uuid())
+  gatheringId String
+  gathering   Gathering      @relation(fields: [gatheringId], references: [id], onDelete: Cascade)
+  memberId    String
+  status      InterestStatus @default(interested)
+  isPrivate   Boolean        @default(false)
+
+  @@unique([gatheringId, memberId])
+}
+
+model FeedPost {
+  id         String     @id @default(uuid())
+  authorId   String
+  body       String
+  lane       FeedLane   @default(general)
+  visibility Visibility @default(verified_members)
+  createdAt  DateTime   @default(now())
+
+  comments  FeedComment[]
+  reactions FeedReaction[]
+}
+
+model FeedComment {
+  id        String   @id @default(uuid())
+  postId    String
+  post      FeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+}
+
+model FeedReaction {
+  id       String   @id @default(uuid())
+  postId   String
+  post     FeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  memberId String
+  emoji    String
+
+  @@unique([postId, memberId, emoji])
+}
+
+model StoreItem {
+  id               String @id @default(uuid())
+  name             String
+  description      String?
+  imageRef         String?
+  printProviderRef String?
+  priceCents       Int
+}
+
+model MentorshipOffer {
+  id       String   @id @default(uuid())
+  memberId String
+  areas    String[]
+  open     Boolean  @default(true)
+}
