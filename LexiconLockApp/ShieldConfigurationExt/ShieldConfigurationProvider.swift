@@ -19,7 +19,7 @@ final class ShieldConfigurationProvider: ShieldConfigurationDataSource {
                 text: "Earn your break", color: .label
             ),
             subtitle: ShieldConfiguration.Label(
-                text: "Do a few quick flashcard reps in Lexicon Lock to unlock this.",
+                text: "Do a quick English lesson in Lexicon Lock — each lesson earns a minute here.",
                 color: .secondaryLabel
             ),
             primaryButtonLabel: ShieldConfiguration.Label(

@@ -13,12 +13,19 @@ struct SettingsView: View {
 
     @State private var cardsToUnlock = 5
     @State private var breakMinutes = 10
+    @State private var minutesPerLesson = 1
     @State private var canEdit = true
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Your gate") {
+                Section("Lessons") {
+                    Stepper("Minutes earned per lesson: \(minutesPerLesson)",
+                            value: $minutesPerLesson, in: 1...10)
+                        .disabled(!canEdit)
+                }
+
+                Section("Flashcard gate") {
                     Stepper("Cards to unlock: \(cardsToUnlock)",
                             value: $cardsToUnlock, in: 1...20)
                         .disabled(!canEdit)
@@ -49,6 +56,7 @@ struct SettingsView: View {
             }
             .onChange(of: cardsToUnlock) { _, _ in savePolicy() }
             .onChange(of: breakMinutes) { _, _ in savePolicy() }
+            .onChange(of: minutesPerLesson) { _, _ in savePolicy() }
             .onAppear(perform: load)
         }
     }
@@ -57,6 +65,7 @@ struct SettingsView: View {
         let policy = services.gateController.policy
         cardsToUnlock = policy.cardsToUnlock
         breakMinutes = max(1, Int(policy.breakDuration / 60))
+        minutesPerLesson = max(1, Int(policy.timePerLesson / 60))
         canEdit = services.gateController.canCurrentUserEditPolicy
         selection = services.selectionStore.load() ?? FamilyActivitySelection()
     }
@@ -66,7 +75,8 @@ struct SettingsView: View {
         let policy = GatePolicy(
             cardsToUnlock: cardsToUnlock,
             breakDuration: TimeInterval(breakMinutes * 60),
-            passThreshold: services.gateController.policy.passThreshold
+            passThreshold: services.gateController.policy.passThreshold,
+            timePerLesson: TimeInterval(minutesPerLesson * 60)
         )
         try? services.gateController.updatePolicy(policy)
     }

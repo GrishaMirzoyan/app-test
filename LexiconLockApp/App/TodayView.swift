@@ -1,42 +1,80 @@
 import SwiftUI
 
-/// Home tab: reward-framed call to action to do a quick review and earn a break.
+/// Home tab, reward-framed: do a lesson, bank a minute, spend it on your apps.
 struct TodayView: View {
     @EnvironmentObject private var services: AppServices
+    @Binding var showingLesson: Bool
     @Binding var showingReview: Bool
+
+    @State private var bankedMinutes = 0
     @State private var due = 0
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
                 Spacer()
-                Image(systemName: "brain.head.profile")
+                Image(systemName: "graduationcap.fill")
                     .font(.system(size: 64))
                     .foregroundStyle(.tint)
 
-                Text(due > 0 ? "\(due) card\(due == 1 ? "" : "s") ready" : "You’re all caught up")
+                Text(bankedMinutes > 0
+                     ? "\(bankedMinutes) minute\(bankedMinutes == 1 ? "" : "s") banked"
+                     : "Earn your scroll time")
                     .font(.title.bold())
-                Text(due > 0
-                     ? "Do a few quick reps to earn your break."
-                     : "Come back later for more reps, or get ahead now.")
+                Text("Each English lesson you finish banks a minute of time for your blocked apps.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingReview = true
+                    showingLesson = true
                 } label: {
-                    Text("Earn a break").frame(maxWidth: .infinity)
+                    Text("Do a lesson · +\(lessonMinutes) min")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .padding(.horizontal)
+
+                if bankedMinutes > 0 {
+                    Button {
+                        let seconds = services.timeBank.redeemAll()
+                        if seconds > 0 {
+                            services.blockingController.grantBreak(for: seconds)
+                        }
+                        refresh()
+                    } label: {
+                        Text("Unlock my apps · \(bankedMinutes) min")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.horizontal)
+                }
+
+                if due > 0 {
+                    Button("Review \(due) flashcard\(due == 1 ? "" : "s")") {
+                        showingReview = true
+                    }
+                    .font(.callout)
+                }
                 Spacer()
             }
             .padding()
             .navigationTitle("Today")
-            .onAppear { due = services.dueCount() }
+            .onAppear(perform: refresh)
+            .onChange(of: showingLesson) { _, isShowing in
+                if !isShowing { refresh() } // refresh after a lesson
+            }
             .onChange(of: showingReview) { _, isShowing in
-                if !isShowing { due = services.dueCount() } // refresh after a session
+                if !isShowing { refresh() }
             }
         }
+    }
+
+    private var lessonMinutes: Int {
+        max(1, Int(services.gateController.policy.timePerLesson / 60))
+    }
+
+    private func refresh() {
+        bankedMinutes = services.bankedMinutes()
+        due = services.dueCount()
     }
 }

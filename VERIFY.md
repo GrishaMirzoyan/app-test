@@ -76,6 +76,12 @@ File: `ShieldActionExt/ShieldActionHandler.swift`.
 Files: `ScreenTimeBlockingController.grantBreak`, `DeviceActivityMonitorExt`.
 - [ ] Passing a review calls `grantBreak(for:)`, which clears the shield — the
       gated app opens immediately.
+- [ ] Lesson path: completing a lesson credits the TimeBank; "Unlock my apps"
+      redeems the whole balance into a single `grantBreak(for:)` call. **Note
+      the granularity caveat below applies doubly here** — a 1-minute break
+      (one lesson, default policy) is at the DeviceActivitySchedule's minimum
+      precision. If 1-minute windows prove unreliable on device, raise the
+      default `timePerLesson` or require a minimum banked balance to redeem.
 - [ ] `DeviceActivityCenter().startMonitoring(_:during:)` with a
       `DeviceActivitySchedule(intervalStart:intervalEnd:repeats:false)` from
       *now* to *now + X* is accepted. Confirm this one-shot use is valid and the
